@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>勤怠管理システム（従業員用）</title>
+  <style>
+    body { font-family: Arial, sans-serif; font-size: 18px; background-color: #f0f0f0; margin: 0; padding: 30px; display: flex; flex-direction: column; align-items: center; }
+    .logo { margin-bottom: 30px; }
+    .logo img { width: 150px; height: 150px; border-radius: 50%; object-fit: cover; }
+    .container { background-color: #fff; padding: 30px; border-radius: 8px; box-shadow: 0 0 15px rgba(0,0,0,0.1); width: 100%; max-width: 800px; }
+    h1 { text-align: center; font-size: 2em; margin-bottom: 20px; }
+    .form-group { margin-bottom: 20px; }
+    label { display: block; margin-bottom: 8px; font-weight: bold; }
+    input[type="text"] { width: 100%; padding: 12px; font-size: 1em; box-sizing: border-box; border: 1px solid #ccc; border-radius: 4px; }
+    .button-group { display: flex; align-items: center; gap: 15px; margin-bottom: 20px; }
+    button { padding: 12px 20px; font-size: 1em; background-color: #007BFF; color: white; border: none; border-radius: 6px; cursor: pointer; }
+    button:disabled { background-color: #aaa; cursor: not-allowed; }
+    #toggleMenu { background: none; border: none; font-size: 1.5em; cursor: pointer; color: #333; }
+    #adminMenu { margin-top: 10px; display: none; gap: 10px; }
+    #adminMenu button { background-color: #28a745; }
+    #adminMenu button#restoreBtn { background-color: #ffa500; }
+    #adminMenu button#clearAllBtn { background-color: #dc3545; }
+    .record { border-bottom: 1px solid #ddd; padding: 12px 0; font-size: 1em; }
+  </style>
+</head>
+<body>
+  <div class="logo">
+    <img src="logo.png" alt="勤怠管理ロゴ">
+  </div>
+  <div class="container">
+    <h1>勤怠管理（従業員用）</h1>
+    <div class="form-group">
+      <label for="empName">名前</label>
+      <input type="text" id="empName" placeholder="氏名を入力">
+    </div>
+    <div class="form-group button-group">
+      <button id="btnClockIn" disabled>出勤</button>
+      <button id="btnClockOut" disabled>退勤</button>
+      <button id="toggleMenu">▸</button>
+    </div>
+    <div id="adminMenu" class="form-group button-group">
+      <button id="backupBtn" type="button">バックアップ</button>
+      <button id="restoreBtn" type="button">リストア</button>
+      <input type="file" id="restoreFile" style="display:none;">
+      <button id="clearAllBtn" type="button">全データ削除</button>
+    </div>
+    <div class="form-group">
+      <label for="searchEmpName">検索（名前）</label>
+      <input type="text" id="searchEmpName" placeholder="名前で絞り込み">
+    </div>
+    <div id="empResult"></div>
+  </div>
+
+  <script>
+    const STORAGE_KEY = 'timeCards';
+    function getJstDate() {
+      const now = new Date(); const utc = now.getTime() + now.getTimezoneOffset() * 60000;
+      return new Date(utc + 9 * 3600000);
+    }
+    function getLocalDateString(date) {
+      const y = date.getFullYear(), m = String(date.getMonth()+1).padStart(2,'0'), d = String(date.getDate()).padStart(2,'0');
+      return `${y}-${m}-${d}`;
+    }
+    function saveEmpPair(name, type) {
+      const now = getJstDate(), today = getLocalDateString(now);
+      const data = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+      if (!data[name]) data[name] = {};
+      if (!data[name][today]) data[name][today] = [];
+      const recs = data[name][today], last = recs[recs.length-1];
+      if (type==='in'){
+        if(last && last.checkOut===null) return alert('連続した出勤はできません');
+        recs.push({checkIn:now.toTimeString().slice(0,5),checkOut:null,isPaidLeave:false});
+      } else {
+        if(!last||last.checkOut!==null) return alert('先に出勤してください'); last.checkOut=now.toTimeString().slice(0,5);
+      }
+      localStorage.setItem(STORAGE_KEY,JSON.stringify(data)); alert('送信完了しました');
+      document.getElementById('empName').value=''; updateButtons(''); displayEmpRecords();
+    }
+    function updateButtons(name){
+      const btnIn=document.getElementById('btnClockIn'), btnOut=document.getElementById('btnClockOut');
+      if(!name){btnIn.disabled=true;btnOut.disabled=true;return;}
+      const data=JSON.parse(localStorage.getItem(STORAGE_KEY)||'{}')[name]||{}, dates=Object.keys(data).sort().reverse();
+      const lastDate=dates[0], lastRec= lastDate?data[lastDate][data[lastDate].length-1]:null;
+      if(!lastRec||lastRec.checkOut!==null){btnIn.disabled=false;btnOut.disabled=true;}else{btnIn.disabled=true;btnOut.disabled=false;}
+    }
+    function displayEmpRecords(){
+      const filter=document.getElementById('searchEmpName').value.trim().toLowerCase();
+      const data=JSON.parse(localStorage.getItem(STORAGE_KEY)||'{}'), c=document.getElementById('empResult');c.innerHTML='';
+      Object.keys(data).filter(name=>name.toLowerCase().includes(filter)).forEach(name=>{
+        Object.keys(data[name]).sort().reverse().forEach(date=>{
+          data[name][date].forEach(rec=>{if(rec.checkIn){
+            const div=document.createElement('div');div.className='record';
+            div.textContent=`${name} - ${date} ${rec.checkIn}~${rec.checkOut||'--'}`;
+            c.appendChild(div);
+          }});
+        });
+      });
+    }
+    document.addEventListener('DOMContentLoaded',()=>{
+      const nameInput=document.getElementById('empName');
+      document.getElementById('toggleMenu').addEventListener('click', () => {
+        const menu = document.getElementById('adminMenu');
+        const open = menu.style.display === 'flex';
+        menu.style.display = open ? 'none' : 'flex';
+        // アイコンを切り替え
+        document.getElementById('toggleMenu').textContent = open ? '▸' : '▾';
+      });
+      document.getElementById('btnClockIn').addEventListener('click',()=>saveEmpPair(nameInput.value.trim(),'in'));
+      document.getElementById('btnClockOut').addEventListener('click',()=>saveEmpPair(nameInput.value.trim(),'out'));
+      nameInput.addEventListener('input',()=>updateButtons(nameInput.value.trim()));
+      document.getElementById('searchEmpName').addEventListener('input',displayEmpRecords);
+      document.getElementById('backupBtn').addEventListener('click',()=>{
+        const blob=new Blob([localStorage.getItem(STORAGE_KEY)||'{}'],{type:'application/json'});
+        const url=URL.createObjectURL(blob), a=document.createElement('a');a.href=url;a.download='timecards_backup.json';a.click();URL.revokeObjectURL(url);
+      });
+      document.getElementById('restoreBtn').addEventListener('click',()=>document.getElementById('restoreFile').click());
+      document.getElementById('restoreFile').addEventListener('change',e=>{
+        const reader=new FileReader();reader.onload=ev=>{try{
+          JSON.parse(ev.target.result);
+          localStorage.setItem(STORAGE_KEY,ev.target.result);
+          displayEmpRecords(); updateButtons(nameInput.value.trim());
+        }catch{return alert('無効なデータ形式です');}};reader.readAsText(e.target.files[0]);
+      });
+      document.getElementById('clearAllBtn').addEventListener('click',()=>{
+        const pwd=prompt('パスワードを入力してください:');
+        if(pwd==='4564'){localStorage.removeItem(STORAGE_KEY);displayEmpRecords();updateButtons('');}else alert('パスワードが違います');
+      });
+      displayEmpRecords(); updateButtons('');
+    });
+  </script>
+</body>
+</html>
